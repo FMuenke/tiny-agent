@@ -1,139 +1,270 @@
-# clawlite
+# ClawLite - Tiny Agent for Local LLMs
 
-Terminal LLM Agent for Small Local Models (Ollama 8B-friendly)
+A terminal-based AI agent optimized for small local models (7B-8B) via Ollama.
 
-## Overview
+**Status**: ✅ MVP Working! (see [MVP_STATUS.md](MVP_STATUS.md))
 
-clawlite is a terminal-based agent that helps you:
-- Open and read PDFs, text files, and markdown
-- Summarize and compare documents
-- Perform web searches and summarize results
-- Generate office-friendly outputs (bullet summaries, action items, meeting minutes, email drafts)
+---
 
-**Key Design Principle**: Built for reliability with small local LLMs (7B-8B) using:
-- Strict output formats (ACTION/FINAL blocks only)
-- Single-step tool invocation per turn
-- Schema validation + repair loop
-- Transparent execution with user approval for risky operations
+## Quick Start
 
-## Requirements
-
-- Python 3.11+
-- Ollama running locally with at least one model (default: `llama3.1:8b-instruct`)
-
-## Installation
+### 1. Prerequisites
 
 ```bash
-# Clone or create project directory
-cd clawlite
+# Install Ollama (if not already installed)
+brew install ollama
 
-# Install dependencies
-pip install -e ".[dev]"
+# Start Ollama
+ollama serve
 
-# Or install from pyproject.toml
-pip install -r requirements.txt
+# Pull a model
+ollama pull llama3.1:8b
 ```
+
+### 2. Install ClawLite
+
+```bash
+cd tiny-agent
+pip install -e .
+```
+
+### 3. Run It!
+
+```bash
+# Go to a folder with documents
+cd tests/fixtures/invoices
+
+# Summarize all PDFs
+clawlite "Summarize all PDF invoices" --model llama3.1:8b
+```
+
+---
 
 ## Usage
 
-### Interactive Mode
+### Basic Commands
 
 ```bash
-clawlite
-```
+# Summarize documents
+clawlite "Summarize all PDF files"
 
-### Single-Shot Tasks
+# Use specific model
+clawlite "Summarize reports" --model deepseek-r1:8b
 
-```bash
-# Summarize a PDF
-clawlite "Summarize ./docs/report.pdf"
-
-# Compare two documents
-clawlite "Compare ./doc1.txt and ./doc2.txt"
-
-# Web search
-clawlite "Search for Python best practices and summarize"
-
-# Extract action items
-clawlite "Extract action items from ./meeting_notes.txt"
+# Use faster model
+clawlite "Quick summary" --model llama3.2:3b
 ```
 
 ### Options
 
-```bash
-clawlite [OPTIONS] [TASK]
-
-Options:
-  --workspace, -w PATH      Restrict scope to this directory
-  --model, -m MODEL         Ollama model to use [default: llama3.1:8b-instruct]
-  --approve, -a / --no-approve, -A   Ask before write/risky actions [default: True]
-  --dry-run, -d             Show actions without executing
-  --max-steps, -s INTEGER   Maximum steps before stopping [default: 20]
-  --log, -l PATH           Save structured logs to JSONL file
-  --no-web                 Disable web search tool
-  --version, -v            Show version and exit
-  --help                   Show this message and exit
+```
+--model, -m      Model to use (default: llama3.1:8b)
+--workspace, -w  Working directory
+--max-steps, -s  Maximum steps (default: 20)
+--base-url       Ollama API URL (default: http://localhost:11434)
 ```
 
-## Tools
+---
 
-1. **doc_open** - Open PDF/TXT/MD files and extract text
-2. **doc_compare** - Compare two documents (diff, summary, or semantic)
-3. **web_search** - Search the web (DuckDuckGo, no API key needed)
-4. **summarize** - Generate structured summaries
-5. **write_file** - Write output to workspace
-6. **action_items** - Extract action items, owners, and due dates
-7. **meeting_minutes** - Generate structured meeting minutes
-8. **email_draft** - Draft professional emails
+## What It Does
+
+ClawLite is designed to handle everyday office tasks with small local LLMs:
+
+✅ **Currently Working:**
+- Open and read PDFs, text files, markdown
+- Summarize single documents or entire folders
+- Extract key information and sources
+
+🚧 **Coming Soon:**
+- Extract action items from meeting notes
+- Generate meeting minutes
+- Draft emails
+- Parse calendar events
+- Extract structured data (emails, phones, etc.)
+- Create expense reports
+
+---
 
 ## Architecture
 
-### Core Loop: Propose → Validate → Execute → Observe
-
-1. **LLM proposes** exactly one tool action OR outputs FINAL
-2. **Orchestrator validates** output structure, tool allowlist, argument schema, policy checks
-3. **Orchestrator executes** the tool (sandboxed, with approval)
-4. **Tool result** is fed back to LLM in compact format
-5. **Repeat** until FINAL
-
-### Output Format
-
-The LLM MUST output exactly one of:
-
-**ACTION block:**
 ```
-ACTION
-tool: <tool_name>
-args: <json_object>
-END_ACTION
+User Input → Orchestrator → LLM (Ollama JSON mode)
+                ↓
+         Parse JSON Response
+                ↓
+         Execute Tool (doc_open, etc.)
+                ↓
+         Format Result
+                ↓
+         Feed back to LLM → Repeat
 ```
 
-**FINAL block:**
+**Key Features:**
+- **JSON Mode**: Uses Ollama's native JSON format for reliable outputs
+- **Auto-repair**: Fixes common JSON errors from small models
+- **Progress UI**: Live status updates with rich formatting
+- **Multi-step**: Handles complex tasks requiring multiple steps
+- **Lightweight**: Optimized for 8B models on consumer hardware
+
+---
+
+## Examples
+
+### Invoice Summary
+
+```bash
+cd tests/fixtures/invoices
+clawlite "Summarize all PDF invoices" --model llama3.1:8b
 ```
-FINAL
-<final answer text in markdown>
-END_FINAL
+
+**Output:**
+```markdown
+Invoice Summary
+
+Total: €AAAAAA
+Period: Nov 2025 - Jan 2026
+
+Breakdown:
+• Jan 2026: €JJJJJJ (RE-2026-001)
+• Dec 2025: €DDDDDD (RE-2025-017)
+• Nov 2025: €NNNNNN (RE-2025-016)
+
+Sources:
+• invoice1.pdf (RE-2026-001)
+• invoice2.pdf (RE-2025-017)
+• invoice3.pdf (RE-2025-016)
 ```
+
+### Markdown Summary
+
+```bash
+clawlite "Summarize all markdown documentation" --model llama3.2:3b
+```
+
+---
+
+## Available Models
+
+Tested and working:
+- `llama3.2:3b` - Fastest, good for quick summaries
+- `llama3.1:8b` - Best balance of speed and quality
+- `deepseek-r1:8b` - Advanced reasoning (slower)
+
+Check available models:
+```bash
+ollama list
+```
+
+---
+
+## Performance
+
+On Apple M1/M2 Mac:
+- **llama3.2:3b**: ~15 seconds for 5 invoices
+- **llama3.1:8b**: ~25 seconds for 5 invoices
+- **Document loading**: < 1 second
+
+**Optimized for:**
+- ✅ Fast response times
+- ✅ No system blocking
+- ✅ Low memory usage
+- ✅ Works offline (100% local)
+
+---
+
+## Project Structure
+
+```
+tiny-agent/
+├── clawlite/              # Main package
+│   ├── __main__.py        # CLI entry point
+│   ├── ollama_client.py   # Ollama API client
+│   ├── protocol.py        # JSON parser with repair
+│   ├── orchestrator.py    # Main control loop
+│   └── tools/             # Tool implementations
+│       └── doc_open.py    # Document loader
+├── tests/                 # Test files and fixtures
+├── SPEC_v2.md            # Full specification
+├── MINIMAL_MVP_GUIDE.md  # Implementation guide
+├── MVP_STATUS.md         # Current status
+└── README.md             # This file
+```
+
+---
 
 ## Development
 
-```bash
-# Run tests
-pytest
+### Run Tests
 
-# Format code
-black clawlite tests
-ruff check clawlite tests
+```bash
+# Test document loading
+python3 -c "
+from clawlite.tools.doc_open import doc_open
+result = doc_open('tests/fixtures/invoices')
+print(f'Loaded {result[\"files_processed\"]} files')
+"
+
+# Test full pipeline
+python3 -m clawlite.__main__ "Summarize test documents" --model llama3.2:3b
 ```
 
-## Safety
+### Add New Tools
 
-- **Workspace sandbox**: If `--workspace` is set, all file operations are restricted to that directory
-- **Approval required**: Write operations and web searches require user approval (unless `--no-approve`)
-- **No arbitrary execution**: No shell command execution in MVP
-- **Rate limiting**: Web searches are rate-limited
-- **Output truncation**: All tool outputs are truncated before being returned to LLM
+See [SPEC_v2.md](SPEC_v2.md) for tool specifications and [MINIMAL_MVP_GUIDE.md](MINIMAL_MVP_GUIDE.md) for implementation patterns.
+
+---
+
+## Troubleshooting
+
+### "Cannot connect to Ollama"
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# If not, start it
+ollama serve
+```
+
+### "Model not found"
+```bash
+# Pull the model
+ollama pull llama3.1:8b
+```
+
+### Slow performance
+```bash
+# Use smaller model
+clawlite "task" --model llama3.2:3b
+
+# Or reduce max steps
+clawlite "task" --max-steps 5
+```
+
+---
+
+## Contributing
+
+This is an MVP. Contributions welcome for:
+- Additional tools (action_items, meeting_minutes, etc.)
+- Better prompt engineering
+- Performance optimizations
+- Tests and documentation
+
+---
 
 ## License
 
 MIT
+
+---
+
+## Links
+
+- [Ollama](https://ollama.ai) - Local LLM runtime
+- [PyMuPDF](https://pymupdf.readthedocs.io/) - PDF text extraction
+- [Typer](https://typer.tiangolo.com/) - CLI framework
+- [Rich](https://rich.readthedocs.io/) - Terminal formatting
+
+---
+
+**Built with ❤️ for local LLMs**

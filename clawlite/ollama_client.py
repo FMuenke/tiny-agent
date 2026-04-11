@@ -1,100 +1,88 @@
-"""Ollama client for clawlite."""
-
-import json
-from dataclasses import dataclass
-from typing import Optional
+"""Ollama API client with JSON mode support."""
 
 import httpx
-
-
-@dataclass
-class ChatMessage:
-    """A chat message."""
-    role: str  # "system", "user", or "assistant"
-    content: str
-
-
-@dataclass
-class ChatResponse:
-    """Response from Ollama chat."""
-    content: str
-    done: bool
-    model: str
-    total_duration_ms: Optional[int] = None
-    load_duration_ms: Optional[int] = None
-    prompt_eval_count: Optional[int] = None
-    eval_count: Optional[int] = None
+import json
+from typing import Optional
 
 
 class OllamaClient:
-    """Client for Ollama REST API."""
-    
+    """Client for Ollama API with JSON format enforcement."""
+
     def __init__(
         self,
-        model: str = "llama3.1:8b-instruct",
         base_url: str = "http://localhost:11434",
-        temperature: float = 0.1,
-        timeout: float = 120.0,
+        model: str = "llama3.1:8b",
     ):
+        self.base_url = base_url
         self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.temperature = temperature
-        self.timeout = timeout
-        self.client = httpx.Client(timeout=timeout)
-    
-    def chat(self, messages: list[ChatMessage]) -> ChatResponse:
-        """Send chat messages to Ollama.
-        
+
+    def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        format: str = "json",
+        temperature: float = 0.1,
+        max_tokens: int = 800,
+    ) -> dict:
+        """
+        Generate response from Ollama with JSON format.
+
         Args:
-            messages: List of chat messages
-            
+            prompt: User prompt/message
+            system: System prompt
+            format: Output format ("json" enforces structured output)
+            temperature: Sampling temperature (0.0-1.0)
+            max_tokens: Maximum tokens to generate
+
         Returns:
-            ChatResponse with the assistant's reply
+            Parsed JSON response from the model
+
+        Raises:
+            httpx.HTTPError: If API request fails
+            json.JSONDecodeError: If response is not valid JSON
         """
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
-            ],
+            "prompt": prompt,
             "stream": False,
+            "format": format,
             "options": {
-                "temperature": self.temperature,
+                "temperature": temperature,
+                "num_predict": max_tokens,
             },
         }
-        
-        response = self.client.post(
-            f"{self.base_url}/api/chat",
-            json=payload,
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        return ChatResponse(
-            content=data["message"]["content"],
-            done=data.get("done", True),
-            model=data.get("model", self.model),
-            total_duration_ms=data.get("total_duration", 0) // 1_000_000 if data.get("total_duration") else None,
-            load_duration_ms=data.get("load_duration", 0) // 1_000_000 if data.get("load_duration") else None,
-            prompt_eval_count=data.get("prompt_eval_count"),
-            eval_count=data.get("eval_count"),
-        )
-    
-    def is_healthy(self) -> bool:
-        """Check if Ollama server is reachable."""
+
+        if system:
+            payload["system"] = system
+
         try:
-            response = self.client.get(f"{self.base_url}/api/tags", timeout=5.0)
-            return response.status_code == 200
+            response = httpx.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=60.0,  # Reduced timeout to prevent blocking
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            output_text = result["response"]
+
+            # Parse JSON from response
+            return json.loads(output_text)
+
+        except httpx.HTTPError as e:
+            raise ConnectionError(f"Failed to connect to Ollama: {e}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON response from model: {e}\nResponse: {output_text[:500]}")
+
+    def check_health(self) -> bool:
+        """Check if Ollama is running and model is available."""
+        try:
+            response = httpx.get(f"{self.base_url}/api/tags", timeout=5.0)
+            response.raise_for_status()
+
+            models = response.json().get("models", [])
+            model_names = [m["name"] for m in models]
+
+            return self.model in model_names
         except Exception:
             return False
-    
-    def close(self):
-        """Close the HTTP client."""
-        self.client.close()
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, *args):
-        self.close()

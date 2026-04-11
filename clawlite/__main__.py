@@ -1,168 +1,82 @@
-"""CLI entry point for clawlite."""
-
-import sys
-from typing import Optional
+"""CLI entry point for ClawLite."""
 
 import typer
+from typing import Optional
+from pathlib import Path
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.text import Text
 
 from clawlite.orchestrator import Orchestrator
 
-app = typer.Typer(
-    name="clawlite",
-    help="Terminal LLM Agent for Small Local Models",
-    rich_markup_mode="rich",
-)
 console = Console()
 
 
-def version_callback(value: bool):
-    """Show version and exit."""
-    if value:
-        console.print("[bold blue]clawlite[/bold blue] version 0.1.0")
-        raise typer.Exit()
-
-
-@app.command()
 def main(
-    task: Optional[str] = typer.Argument(
-        None,
-        help="Task to execute (optional - runs interactive mode if not provided)",
-    ),
-    workspace: str = typer.Option(
-        "",
-        "--workspace",
-        "-w",
-        help="Restrict read/write/search scope to this directory",
-    ),
-    model: str = typer.Option(
-        "llama3.1:8b-instruct",
-        "--model",
-        "-m",
-        help="Ollama model to use",
-    ),
-    approve: bool = typer.Option(
-        True,
-        "--approve/--no-approve",
-        "-a/-A",
-        help="Ask before write or risky actions",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        "-d",
-        help="Show actions but do not execute",
-    ),
-    max_steps: int = typer.Option(
-        20,
-        "--max-steps",
-        "-s",
-        help="Maximum steps before stopping",
-    ),
-    log: Optional[str] = typer.Option(
-        None,
-        "--log",
-        "-l",
-        help="Save structured logs to JSONL file",
-    ),
-    no_web: bool = typer.Option(
-        False,
-        "--no-web",
-        help="Disable web search tool",
-    ),
-    version: Optional[bool] = typer.Option(
-        None,
-        "--version",
-        "-v",
-        callback=version_callback,
-        is_eager=True,
-        help="Show version and exit",
-    ),
+    task: str,
+    model: str = "llama3.1:8b",
+    workspace: Optional[str] = None,
+    max_steps: int = 20,
+    base_url: str = "http://localhost:11434",
 ):
     """
-    Terminal LLM Agent for Small Local Models (Ollama 8B-friendly)
+    ClawLite: Tiny Agent for Local LLMs
 
-    [bold]Examples:[/bold]
+    Args:
+        task: Task to perform (e.g., 'Summarize all PDFs')
+        model: Ollama model to use (default: llama3.1:8b)
+        workspace: Working directory (default: current directory)
+        max_steps: Maximum steps before stopping (default: 20)
+        base_url: Ollama API base URL (default: http://localhost:11434)
 
-    # Interactive session
-    $ clawlite
+    Examples:
 
-    # Single-shot task
-    $ clawlite "Summarize ./report.pdf"
+        clawlite "Summarize all PDF invoices"
 
-    # With specific model
-    $ clawlite --model llama3.2 "Compare doc1.txt and doc2.txt"
+        clawlite "Summarize reports" --model deepseek-r1:8b
 
-    # Restrict to workspace
-    $ clawlite --workspace ~/documents "Open and summarize notes.txt"
-
-    # Dry run (see what it would do)
-    $ clawlite --dry-run "Write a summary to output.md"
+        clawlite "Quick summary" --model llama3.2:3b
     """
-    # Print banner
-    console.print(Panel(
-        Text("clawlite", style="bold blue") + Text(" — Terminal LLM Agent", style="dim"),
-        border_style="blue",
-    ))
-    
-    # Check Ollama
-    console.print("[dim]Checking Ollama...[/dim]")
-    from clawlite.ollama_client import OllamaClient
-    client = OllamaClient(model=model)
-    
-    if not client.is_healthy():
-        console.print("[red]✗ Cannot connect to Ollama[/red]")
-        console.print("[dim]Make sure Ollama is running: ollama serve[/dim]")
-        sys.exit(1)
-    
-    console.print(f"[green]✓ Connected to Ollama ({model})[/green]\n")
-    client.close()
-    
-    # Create orchestrator
+    # Change to workspace if specified
+    if workspace:
+        workspace_path = Path(workspace)
+        if not workspace_path.exists():
+            console.print(f"[red]❌ Workspace not found: {workspace}[/red]")
+            raise typer.Exit(1)
+        import os
+        os.chdir(workspace_path)
+        console.print(f"[dim]📁 Working directory: {workspace_path.absolute()}[/dim]\n")
+
+    # Show what we're doing
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]{task}[/bold]",
+            title="🎯 Task",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    # Run orchestrator
     orch = Orchestrator(
         model=model,
-        workspace=workspace,
-        approve=approve,
-        dry_run=dry_run,
         max_steps=max_steps,
-        web_enabled=not no_web,
-        log_path=log or "",
-        console=console,
+        base_url=base_url,
     )
-    
-    try:
-        if task:
-            # Single-shot mode
-            orch.run(task)
-        else:
-            # Interactive mode
-            console.print("[bold]Interactive mode[/bold] (type 'quit' or 'exit' to stop)\n")
-            
-            while True:
-                try:
-                    user_input = console.input("[bold green]>[/bold green] ")
-                    
-                    if user_input.lower() in ("quit", "exit", "q"):
-                        console.print("[dim]Goodbye![/dim]")
-                        break
-                    
-                    if not user_input.strip():
-                        continue
-                    
-                    orch.run(user_input)
-                    console.print()
-                    
-                except KeyboardInterrupt:
-                    console.print("\n[dim]Interrupted. Type 'quit' to exit.[/dim]")
-                    continue
-                except EOFError:
-                    break
-    
-    finally:
-        orch.close()
+
+    result = orch.run(task)
+
+    # Display result
+    console.print("\n" + "=" * 70 + "\n")
+    console.print(Markdown(result))
+    console.print("\n" + "=" * 70 + "\n")
+
+
+def cli():
+    """Entry point for the CLI."""
+    typer.run(main)
 
 
 if __name__ == "__main__":
-    app()
+    cli()
