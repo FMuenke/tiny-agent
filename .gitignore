@@ -1,0 +1,15 @@
+# ClawLite agent memory folder — personal scratchpad, not shared
+memory/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
